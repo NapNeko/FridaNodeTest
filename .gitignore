@@ -1,0 +1,27 @@
+# 构建输出
+node_modules/
+build/
+*.node
+*.log
+
+# Frida DevKit (会自动下载)
+.frida-devkit/
+.frida-devkit.tar.xz
+.frida-gumjs.tar.xz
+.frida-gadget.dll.xz
+*.dll
+
+# IDE
+.DS_Store
+.vscode/
+*.suo
+*.user
+*.sln.docstates
+
+# 编译输出
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/

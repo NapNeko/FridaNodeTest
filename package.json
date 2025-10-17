@@ -1,0 +1,25 @@
+{
+  "name": "frida-hook-test",
+  "version": "1.0.0",
+  "description": "A Frida Gum hook test library using cmake-js",
+  "main": "index.js",
+  "scripts": {
+    "install": "cmake-js rebuild",
+    "build": "cmake-js rebuild",
+    "test": "node test.js"
+  },
+  "keywords": [
+    "frida",
+    "gum",
+    "hook",
+    "native",
+    "addon",
+    "instrumentation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cmake-js": "^7.3.0",
+    "node-addon-api": "^8.0.0"
+  }
+}

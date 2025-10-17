@@ -1,0 +1,119 @@
+name: Build and Test Frida Hook
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+  release:
+    types: [ created ]
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }} with Node ${{ matrix.node-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: [18.x, 20.x, 22.x]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Install build tools (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential ninja-build
+
+    - name: Install build tools (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install cmake ninja
+
+    - name: Setup MSVC (Windows)
+      if: runner.os == 'Windows'
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Cache Frida DevKit
+      uses: actions/cache@v4
+      with:
+        path: .frida-devkit
+        key: frida-devkit-16.5.9-${{ runner.os }}-${{ runner.arch }}
+        restore-keys: |
+          frida-devkit-16.5.9-${{ runner.os }}-
+
+    - name: Install npm dependencies
+      run: npm ci
+
+    - name: Build native addon
+      run: npm run build
+
+    - name: Run tests
+      run: npm test
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: frida-hook-${{ matrix.os }}-node${{ matrix.node-version }}
+        path: build/Release/*.node
+        retention-days: 7
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.os }}-node${{ matrix.node-version }}
+        path: |
+          *.log
+          npm-debug.log*
+        if-no-files-found: ignore
+        retention-days: 3
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'created'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+
+    - name: Display artifact structure
+      run: ls -R ./artifacts
+
+    - name: Package artifacts
+      run: |
+        mkdir -p release
+        cd artifacts
+        for dir in frida-hook-*; do
+          if [ -d "$dir" ]; then
+            cd "$dir"
+            zip -r "../../release/${dir}.zip" *.node
+            cd ..
+          fi
+        done
+
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release/*.zip
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
