@@ -129,6 +129,16 @@ extern "C" NOINLINE int TestReplacementFunctionImpl() {
     return 99;
 }
 
+// 用于 attach 模式的监听器回调
+static void test_hook_on_enter(GumInvocationListener* listener, GumInvocationContext* context) {
+    // 在进入时不做任何处理
+}
+
+static void test_hook_on_leave(GumInvocationListener* listener, GumInvocationContext* context) {
+    // 在退出时修改返回值为 99
+    gum_invocation_context_replace_return_value(context, GSIZE_TO_POINTER(99));
+}
+
 Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     
@@ -139,11 +149,9 @@ Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
     
     // 获取测试函数地址
     void* targetFunc = (void*)&TestOriginalFunction;
-    void* replacementFunc = (void*)&TestReplacementFunctionImpl;
     
     // 调试信息：输出函数地址
     std::cout << "Target function address: " << targetFunc << std::endl;
-    std::cout << "Replacement function address: " << replacementFunc << std::endl;
     
     // 创建 hook 信息
     auto hookInfo = std::make_shared<HookInfo>();
@@ -154,7 +162,11 @@ Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
     // 创建拦截器
     hookInfo->interceptor = gum_interceptor_obtain();
     
-    // 使用 gum_interceptor_replace 直接替换函数（不需要 transaction）
+#ifdef _WIN32
+    // Windows: 使用 replace 模式（直接替换函数）
+    void* replacementFunc = (void*)&TestReplacementFunctionImpl;
+    std::cout << "Replacement function address: " << replacementFunc << std::endl;
+    
     GumReplaceReturn ret = gum_interceptor_replace(
         hookInfo->interceptor,
         targetFunc,
@@ -170,8 +182,36 @@ Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
         return Napi::Boolean::New(env, false);
     }
     
-    // 保存 hook 信息（注意：replace 模式不使用 listener）
     hookInfo->listener = NULL;
+#else
+    // macOS/Linux: 使用 attach 模式配合监听器修改返回值
+    GumInvocationListenerInterface iface = {};
+    iface.on_enter = test_hook_on_enter;
+    iface.on_leave = test_hook_on_leave;
+    
+    hookInfo->listener = (GumInvocationListener*)g_object_new(
+        SimpleInvocationListener::get_type(), NULL);
+    *(GumInvocationListenerInterface**)hookInfo->listener = &iface;
+    
+    gum_interceptor_begin_transaction(hookInfo->interceptor);
+    GumAttachReturn ret = gum_interceptor_attach(
+        hookInfo->interceptor,
+        targetFunc,
+        hookInfo->listener,
+        NULL);
+    gum_interceptor_end_transaction(hookInfo->interceptor);
+    
+    if (ret != GUM_ATTACH_OK) {
+        g_object_unref(hookInfo->listener);
+        g_object_unref(hookInfo->interceptor);
+        std::stringstream ss;
+        ss << "Failed to hook test function, error code: " << ret;
+        Napi::Error::New(env, ss.str()).ThrowAsJavaScriptException();
+        return Napi::Boolean::New(env, false);
+    }
+#endif
+    
+    // 保存 hook 信息
     hooks_["test-function"] = hookInfo;
     
     return Napi::Boolean::New(env, true);
