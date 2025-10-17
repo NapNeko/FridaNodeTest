@@ -25,6 +25,23 @@
 
 Napi::FunctionReference HookManager::constructor;
 
+// 简单的 Invocation Listener 实现
+class SimpleInvocationListener : public GObject {
+public:
+    static GType get_type() {
+        static GType type = 0;
+        if (type == 0) {
+            static const GTypeInfo info = {
+                sizeof(GumInvocationListenerInterface),
+                NULL, NULL, NULL, NULL, NULL, 0, 0, NULL, NULL
+            };
+            type = g_type_register_static(GUM_TYPE_INVOCATION_LISTENER,
+                                         "SimpleInvocationListener", &info, (GTypeFlags)0);
+        }
+        return type;
+    }
+};
+
 // 测试用的内置函数实现
 #ifdef _MSC_VER
 #define NOINLINE __declspec(noinline)
@@ -137,7 +154,7 @@ Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
     // 创建拦截器
     hookInfo->interceptor = gum_interceptor_obtain();
     
-    // 使用 gum_interceptor_replace 直接替换函数
+    // 使用 gum_interceptor_replace 直接替换函数（不需要 transaction）
     GumReplaceReturn ret = gum_interceptor_replace(
         hookInfo->interceptor,
         targetFunc,
@@ -260,23 +277,6 @@ Napi::Value HookManager::GetFunctionAddress(const Napi::CallbackInfo& info) {
     
     return Napi::BigInt::New(env, reinterpret_cast<uint64_t>(funcAddress));
 }
-
-// 简单的 Invocation Listener 实现
-class SimpleInvocationListener : public GObject {
-public:
-    static GType get_type() {
-        static GType type = 0;
-        if (type == 0) {
-            static const GTypeInfo info = {
-                sizeof(GumInvocationListenerInterface),
-                NULL, NULL, NULL, NULL, NULL, 0, 0, NULL, NULL
-            };
-            type = g_type_register_static(GUM_TYPE_INVOCATION_LISTENER,
-                                         "SimpleInvocationListener", &info, (GTypeFlags)0);
-        }
-        return type;
-    }
-};
 
 static void on_enter(GumInvocationListener* listener, GumInvocationContext* context) {
     // Hook 进入时的回调
