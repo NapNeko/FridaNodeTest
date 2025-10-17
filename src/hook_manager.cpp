@@ -34,8 +34,13 @@ static void test_listener_on_enter(GumInvocationListener* listener, GumInvocatio
 }
 
 static void test_listener_on_leave(GumInvocationListener* listener, GumInvocationContext* context) {
-    // 修改返回值为 99
-    gum_invocation_context_replace_return_value(context, GSIZE_TO_POINTER(99));
+    // 调试：打印进入/退出与返回值，并修改返回值为 99
+    gpointer old_ret = gum_invocation_context_get_return_value(context);
+    std::cout << "[frida] on_leave: old_ret=" << old_ret << std::endl;
+    // 使用 GUINT_TO_POINTER 将 int 映射为 gpointer
+    gum_invocation_context_replace_return_value(context, GUINT_TO_POINTER(99));
+    gpointer new_ret = gum_invocation_context_get_return_value(context);
+    std::cout << "[frida] on_leave: new_ret=" << new_ret << std::endl;
 }
 
 // 简单的监听器结构体
