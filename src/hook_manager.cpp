@@ -83,8 +83,26 @@ static void test_listener_init(TestListener* self) {
 #define NOINLINE __attribute__((noinline))
 #endif
 
+// 在 macOS/Clang 上禁用该函数的优化，避免过短的函数体导致 prologue 过小
+#if defined(__APPLE__) && defined(__clang__)
+#define NOOPT __attribute__((optnone))
+#else
+#define NOOPT
+#endif
+
 extern "C" {
-    NOINLINE int TestOriginalFunction() {
+    NOINLINE NOOPT int TestOriginalFunction() {
+#if defined(__APPLE__)
+        // 扩展函数前序，保证指令数足够，便于 Frida Gum 在 AArch64 上插桩
+        volatile int sum = 0;
+        for (volatile int i = 0; i < 8; i++) {
+            sum += i;
+        }
+        if (sum == -1) {
+            // 防止被优化掉
+            std::cout << sum;
+        }
+#endif
         return 42;  // 原始函数返回 42
     }
     
@@ -186,7 +204,7 @@ Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
     // 创建拦截器
     hookInfo->interceptor = gum_interceptor_obtain();
     
-#ifdef _WIN32
+#if defined(_WIN32)
     // Windows: 使用 replace 模式（直接替换函数）
     void* replacementFunc = (void*)&TestReplacementFunctionImpl;
     std::cout << "Replacement function address: " << replacementFunc << std::endl;
@@ -207,6 +225,48 @@ Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
     }
     
     hookInfo->listener = NULL;
+#elif defined(__APPLE__)
+    // macOS: 优先尝试 replace（包裹事务），失败则回退到 attach
+    {
+        void* replacementFunc = (void*)&TestReplacementFunctionImpl;
+        std::cout << "Replacement function address: " << replacementFunc << std::endl;
+        gum_interceptor_begin_transaction(hookInfo->interceptor);
+        GumReplaceReturn rret = gum_interceptor_replace(
+            hookInfo->interceptor,
+            targetFunc,
+            replacementFunc,
+            NULL,
+            NULL);
+        gum_interceptor_end_transaction(hookInfo->interceptor);
+        if (rret == GUM_REPLACE_OK) {
+            hookInfo->listener = NULL;
+            // 保存并返回
+            hooks_["test-function"] = hookInfo;
+            return Napi::Boolean::New(env, true);
+        }
+        std::cout << "[frida] macOS replace failed, fallback to attach. code=" << rret << std::endl;
+    }
+    
+    // 回退到 attach 模式
+    hookInfo->listener = GUM_INVOCATION_LISTENER(g_object_new(TEST_TYPE_LISTENER, NULL));
+    gum_interceptor_begin_transaction(hookInfo->interceptor);
+    {
+        GumAttachReturn aret = gum_interceptor_attach(
+            hookInfo->interceptor,
+            targetFunc,
+            hookInfo->listener,
+            NULL);
+        gum_interceptor_end_transaction(hookInfo->interceptor);
+        if (aret != GUM_ATTACH_OK) {
+            g_object_unref(hookInfo->listener);
+            g_object_unref(hookInfo->interceptor);
+            std::stringstream ss;
+            ss << "Failed to hook test function, error code: " << aret;
+            Napi::Error::New(env, ss.str()).ThrowAsJavaScriptException();
+            return Napi::Boolean::New(env, false);
+        }
+    }
+    std::cout << "Hook attached successfully on macOS/Linux" << std::endl;
 #else
     // macOS/Linux: 使用 attach 模式配合监听器修改返回值
     hookInfo->listener = GUM_INVOCATION_LISTENER(g_object_new(TEST_TYPE_LISTENER, NULL));
