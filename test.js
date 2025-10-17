@@ -8,7 +8,14 @@ try {
 
     // Test 1: Get module base address
     console.log('Test 1: Get module base address');
-    const moduleName = process.platform === 'win32' ? 'kernel32.dll' : 'libc.so.6';
+    let moduleName;
+    if (process.platform === 'win32') {
+        moduleName = 'kernel32.dll';
+    } else if (process.platform === 'darwin') {
+        moduleName = 'libSystem.B.dylib';
+    } else {
+        moduleName = 'libc.so.6';
+    }
     console.log(`Module: ${moduleName}`);
     const baseAddress = hook.getModuleBase(moduleName);
     console.log(`Base Address: 0x${baseAddress.toString(16)}`);
