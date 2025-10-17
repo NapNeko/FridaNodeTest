@@ -124,6 +124,10 @@ Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
     void* targetFunc = (void*)&TestOriginalFunction;
     void* replacementFunc = (void*)&TestReplacementFunctionImpl;
     
+    // 调试信息：输出函数地址
+    std::cout << "Target function address: " << targetFunc << std::endl;
+    std::cout << "Replacement function address: " << replacementFunc << std::endl;
+    
     // 创建 hook 信息
     auto hookInfo = std::make_shared<HookInfo>();
     hookInfo->targetFunc = targetFunc;
@@ -134,14 +138,12 @@ Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
     hookInfo->interceptor = gum_interceptor_obtain();
     
     // 使用 gum_interceptor_replace 直接替换函数
-    gum_interceptor_begin_transaction(hookInfo->interceptor);
     GumReplaceReturn ret = gum_interceptor_replace(
         hookInfo->interceptor,
         targetFunc,
         replacementFunc,
         NULL,
         NULL);
-    gum_interceptor_end_transaction(hookInfo->interceptor);
     
     if (ret != GUM_REPLACE_OK) {
         g_object_unref(hookInfo->interceptor);
