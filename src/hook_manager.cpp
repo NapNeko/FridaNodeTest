@@ -231,7 +231,26 @@ Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
     
     hookInfo->listener = NULL;
 #elif defined(__APPLE__)
-    // macOS: 仅使用 attach 模式（稳定可见 on_leave 回调）
+    // macOS: 优先使用 replace（在 NOOPT + 扩展 prologue 下应可生效），失败再回退 attach
+    {
+        void* replacementFunc = (void*)&TestReplacementFunctionImpl;
+        std::cout << "Replacement function address: " << replacementFunc << std::endl;
+        gum_interceptor_begin_transaction(hookInfo->interceptor);
+        GumReplaceReturn rret = gum_interceptor_replace(
+            hookInfo->interceptor,
+            targetFunc,
+            replacementFunc,
+            NULL,
+            NULL);
+        gum_interceptor_end_transaction(hookInfo->interceptor);
+        if (rret == GUM_REPLACE_OK) {
+            hookInfo->listener = NULL;
+            hooks_["test-function"] = hookInfo;
+            return Napi::Boolean::New(env, true);
+        }
+        std::cout << "[frida] macOS replace failed, fallback to attach. code=" << rret << std::endl;
+    }
+    
     hookInfo->listener = GUM_INVOCATION_LISTENER(g_object_new(TEST_TYPE_LISTENER, NULL));
     gum_interceptor_begin_transaction(hookInfo->interceptor);
     GumAttachReturn aret = gum_interceptor_attach(
