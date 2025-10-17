@@ -27,39 +27,48 @@ Napi::FunctionReference HookManager::constructor;
 
 // 自定义监听器类型（用于非 Windows 平台）
 #ifndef _WIN32
-typedef struct _TestInvocationListener TestInvocationListener;
-struct _TestInvocationListener {
-    GObject parent;
-    GumInvocationListenerInterface iface;
-};
 
-static void test_invocation_listener_iface_init(gpointer g_iface, gpointer iface_data);
-
-#define TEST_TYPE_INVOCATION_LISTENER (test_invocation_listener_get_type())
-G_DECLARE_FINAL_TYPE(TestInvocationListener, test_invocation_listener, TEST, INVOCATION_LISTENER, GObject)
-G_DEFINE_TYPE_EXTENDED(TestInvocationListener, test_invocation_listener, G_TYPE_OBJECT, 0,
-                       G_IMPLEMENT_INTERFACE(GUM_TYPE_INVOCATION_LISTENER, test_invocation_listener_iface_init))
-
-static void test_invocation_listener_on_enter(GumInvocationListener* listener, GumInvocationContext* context) {
+// 监听器回调函数
+static void test_listener_on_enter(GumInvocationListener* listener, GumInvocationContext* context) {
     // 不做任何处理
 }
 
-static void test_invocation_listener_on_leave(GumInvocationListener* listener, GumInvocationContext* context) {
+static void test_listener_on_leave(GumInvocationListener* listener, GumInvocationContext* context) {
     // 修改返回值为 99
     gum_invocation_context_replace_return_value(context, GSIZE_TO_POINTER(99));
 }
 
-static void test_invocation_listener_iface_init(gpointer g_iface, gpointer iface_data) {
+// 简单的监听器结构体
+typedef struct {
+    GObject parent;
+} TestListener;
+
+typedef struct {
+    GObjectClass parent_class;
+} TestListenerClass;
+
+static void test_listener_iface_init(gpointer g_iface, gpointer iface_data) {
     GumInvocationListenerInterface* iface = (GumInvocationListenerInterface*)g_iface;
-    iface->on_enter = test_invocation_listener_on_enter;
-    iface->on_leave = test_invocation_listener_on_leave;
+    iface->on_enter = test_listener_on_enter;
+    iface->on_leave = test_listener_on_leave;
 }
 
-static void test_invocation_listener_class_init(TestInvocationListenerClass* klass) {
+G_DEFINE_TYPE_EXTENDED(
+    TestListener,
+    test_listener,
+    G_TYPE_OBJECT,
+    0,
+    G_IMPLEMENT_INTERFACE(GUM_TYPE_INVOCATION_LISTENER, test_listener_iface_init)
+)
+
+static void test_listener_class_init(TestListenerClass* klass) {
 }
 
-static void test_invocation_listener_init(TestInvocationListener* self) {
+static void test_listener_init(TestListener* self) {
 }
+
+#define TEST_TYPE_LISTENER (test_listener_get_type())
+
 #endif
 
 // 测试用的内置函数实现
@@ -195,7 +204,7 @@ Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
     hookInfo->listener = NULL;
 #else
     // macOS/Linux: 使用 attach 模式配合监听器修改返回值
-    hookInfo->listener = GUM_INVOCATION_LISTENER(g_object_new(TEST_TYPE_INVOCATION_LISTENER, NULL));
+    hookInfo->listener = GUM_INVOCATION_LISTENER(g_object_new(TEST_TYPE_LISTENER, NULL));
     
     gum_interceptor_begin_transaction(hookInfo->interceptor);
     GumAttachReturn ret = gum_interceptor_attach(
@@ -213,6 +222,8 @@ Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
         Napi::Error::New(env, ss.str()).ThrowAsJavaScriptException();
         return Napi::Boolean::New(env, false);
     }
+    
+    std::cout << "Hook attached successfully on macOS/Linux" << std::endl;
 #endif
     
     // 保存 hook 信息
@@ -383,7 +394,7 @@ Napi::Value HookManager::HookFunction(const Napi::CallbackInfo& info) {
     gum_interceptor_end_transaction(hookInfo->interceptor);
 #else
     // macOS/Linux: 使用自定义监听器类型
-    hookInfo->listener = GUM_INVOCATION_LISTENER(g_object_new(TEST_TYPE_INVOCATION_LISTENER, NULL));
+    hookInfo->listener = GUM_INVOCATION_LISTENER(g_object_new(TEST_TYPE_LISTENER, NULL));
     
     // 开始 hook
     gum_interceptor_begin_transaction(hookInfo->interceptor);
