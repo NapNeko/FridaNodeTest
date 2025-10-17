@@ -18,7 +18,9 @@
 #pragma comment(lib, "winmm.lib")
 #else
 #include <dlfcn.h>
+#ifdef __linux__
 #include <link.h>
+#endif
 #endif
 
 Napi::FunctionReference HookManager::constructor;
@@ -163,7 +165,35 @@ void* HookManager::GetModuleBaseAddress(const std::string& moduleName) {
         hModule = LoadLibraryA(moduleName.c_str());
     }
     return reinterpret_cast<void*>(hModule);
+#elif defined(__APPLE__)
+    // macOS: 遍历所有加载的镜像
+    uint32_t imageCount = _dyld_image_count();
+    for (uint32_t i = 0; i < imageCount; i++) {
+        const char* imageName = _dyld_get_image_name(i);
+        if (imageName && strstr(imageName, moduleName.c_str()) != nullptr) {
+            return const_cast<void*>(reinterpret_cast<const void*>(_dyld_get_image_header(i)));
+        }
+    }
+    
+    // 尝试通过 dlopen 加载
+    void* handle = dlopen(moduleName.c_str(), RTLD_LAZY | RTLD_NOLOAD);
+    if (!handle) {
+        handle = dlopen(moduleName.c_str(), RTLD_LAZY);
+    }
+    
+    if (handle) {
+        // 在 macOS 上,dlsym 可以获取模块基址
+        Dl_info info;
+        if (dladdr(dlsym(handle, ""), &info)) {
+            dlclose(handle);
+            return const_cast<void*>(info.dli_fbase);
+        }
+        dlclose(handle);
+    }
+    
+    return nullptr;
 #else
+    // Linux
     void* handle = dlopen(moduleName.c_str(), RTLD_LAZY | RTLD_NOLOAD);
     if (!handle) {
         handle = dlopen(moduleName.c_str(), RTLD_LAZY);
