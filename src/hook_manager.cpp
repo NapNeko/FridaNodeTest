@@ -133,6 +133,11 @@ Napi::Object HookManager::Init(Napi::Env env, Napi::Object exports) {
 
 HookManager::HookManager(const Napi::CallbackInfo& info) 
     : Napi::ObjectWrap<HookManager>(info), fridaInitialized_(false) {
+    // 确保 Frida 运行时初始化（跨平台可靠）
+    if (!fridaInitialized_) {
+        gum_init_embedded();
+        fridaInitialized_ = true;
+    }
 }
 
 HookManager::~HookManager() {
@@ -177,7 +182,7 @@ Napi::Value HookManager::CallTestFunction(const Napi::CallbackInfo& info) {
 }
 
 // 简单的替换函数：直接返回 99
-extern "C" NOINLINE int TestReplacementFunctionImpl() {
+extern "C" NOINLINE NOOPT int TestReplacementFunctionImpl() {
     return 99;
 }
 
@@ -226,45 +231,22 @@ Napi::Value HookManager::HookTestFunction(const Napi::CallbackInfo& info) {
     
     hookInfo->listener = NULL;
 #elif defined(__APPLE__)
-    // macOS: 优先尝试 replace（包裹事务），失败则回退到 attach
-    {
-        void* replacementFunc = (void*)&TestReplacementFunctionImpl;
-        std::cout << "Replacement function address: " << replacementFunc << std::endl;
-        gum_interceptor_begin_transaction(hookInfo->interceptor);
-        GumReplaceReturn rret = gum_interceptor_replace(
-            hookInfo->interceptor,
-            targetFunc,
-            replacementFunc,
-            NULL,
-            NULL);
-        gum_interceptor_end_transaction(hookInfo->interceptor);
-        if (rret == GUM_REPLACE_OK) {
-            hookInfo->listener = NULL;
-            // 保存并返回
-            hooks_["test-function"] = hookInfo;
-            return Napi::Boolean::New(env, true);
-        }
-        std::cout << "[frida] macOS replace failed, fallback to attach. code=" << rret << std::endl;
-    }
-    
-    // 回退到 attach 模式
+    // macOS: 仅使用 attach 模式（稳定可见 on_leave 回调）
     hookInfo->listener = GUM_INVOCATION_LISTENER(g_object_new(TEST_TYPE_LISTENER, NULL));
     gum_interceptor_begin_transaction(hookInfo->interceptor);
-    {
-        GumAttachReturn aret = gum_interceptor_attach(
-            hookInfo->interceptor,
-            targetFunc,
-            hookInfo->listener,
-            NULL);
-        gum_interceptor_end_transaction(hookInfo->interceptor);
-        if (aret != GUM_ATTACH_OK) {
-            g_object_unref(hookInfo->listener);
-            g_object_unref(hookInfo->interceptor);
-            std::stringstream ss;
-            ss << "Failed to hook test function, error code: " << aret;
-            Napi::Error::New(env, ss.str()).ThrowAsJavaScriptException();
-            return Napi::Boolean::New(env, false);
-        }
+    GumAttachReturn aret = gum_interceptor_attach(
+        hookInfo->interceptor,
+        targetFunc,
+        hookInfo->listener,
+        NULL);
+    gum_interceptor_end_transaction(hookInfo->interceptor);
+    if (aret != GUM_ATTACH_OK) {
+        g_object_unref(hookInfo->listener);
+        g_object_unref(hookInfo->interceptor);
+        std::stringstream ss;
+        ss << "Failed to hook test function, error code: " << aret;
+        Napi::Error::New(env, ss.str()).ThrowAsJavaScriptException();
+        return Napi::Boolean::New(env, false);
     }
     std::cout << "Hook attached successfully on macOS/Linux" << std::endl;
 #else
