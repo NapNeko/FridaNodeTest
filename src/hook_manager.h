@@ -12,7 +12,12 @@
 #include <psapi.h>
 #else
 #include <dlfcn.h>
+#ifdef __linux__
 #include <link.h>
+#endif
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #endif
 
 #include "frida-gum.h"
