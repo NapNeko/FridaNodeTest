@@ -391,7 +391,7 @@ Napi::Value GetFunctionAddressByName(const Napi::CallbackInfo &info)
 
 /**
  * HookTest(): Test function to hook TestOriginalFunction
- * @returns {boolean} true if hook was successful
+ * @returns {BigInt} Trampoline address (can be used to call original function)
  */
 Napi::Value HookTest(const Napi::CallbackInfo &info)
 {
@@ -405,10 +405,12 @@ Napi::Value HookTest(const Napi::CallbackInfo &info)
     if (trampoline == nullptr)
     {
         Napi::Error::New(env, "Hook test failed").ThrowAsJavaScriptException();
-        return Napi::Boolean::New(env, false);
+        return env.Null();
     }
 
-    return Napi::Boolean::New(env, true);
+    // Return trampoline address as BigInt
+    uint64_t trampolineAddr = reinterpret_cast<uint64_t>(trampoline);
+    return Napi::BigInt::New(env, trampolineAddr);
 }
 
 /**

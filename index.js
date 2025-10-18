@@ -102,7 +102,7 @@ function CallOriginalFunction(oriAddr) {
 
 /**
  * Hook 内置测试函数
- * @returns {boolean} 是否成功
+ * @returns {BigInt} Trampoline 地址 (可用于调用原始函数)
  */
 function HookTest() {
     return addon.HookTest();

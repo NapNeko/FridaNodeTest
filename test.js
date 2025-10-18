@@ -69,8 +69,8 @@ const result1 = CallTestFunction();
 console.log(`  CallTestFunction() = ${result1}`);
 
 console.log('\n[3.2] Installing hook:');
-HookTest();
-console.log('  ✓ Hook installed');
+const trampolineAddr = HookTest();
+console.log(`  ✓ Hook installed, trampoline address: ${trampolineAddr}`);
 
 console.log('\n[3.3] After hook:');
 const result2 = CallTestFunction();
@@ -78,12 +78,7 @@ console.log(`  CallTestFunction() = ${result2}`);
 
 console.log('\n[3.4] Hook works:', result1 !== result2 ? '✓ Yes' : '✗ No');
 
-// ============================================================================
-// 演示 4: 调用被 hook 之前的原始函数
-// ============================================================================
-console.log('\n' + '='.repeat(60));
-console.log('[Demo 4] Call Original Function');
-console.log('='.repeat(60));
-console.log('\nUsage: CallOriginalFunction(oriAddr)');
-console.log('Note: This requires Hook to be called first and saves trampoline info');
-console.log('✓ Available (use GetHookInfo to retrieve trampoline address)');
+console.log('\n[3.5] Calling original function via trampoline:');
+const originalResult = CallFunctionNoArg(trampolineAddr);
+console.log(`  Original function returns: ${originalResult}`);
+console.log(`  Match original result: ${originalResult === result1 ? '✓ Yes' : '✗ No'}`);
