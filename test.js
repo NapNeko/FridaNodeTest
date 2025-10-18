@@ -39,14 +39,15 @@ console.log('='.repeat(60));
 
 try {
     //判断平台
+    let addr;
     if (process.platform == 'win32') {
-        const addr = GetFunctionAddressByName('kernel32.dll', 'GetCurrentProcessId');
+        addr = GetFunctionAddressByName('kernel32.dll', 'GetCurrentProcessId');
         console.log(`✓ GetCurrentProcessId address: ${addr}`);
     } else if (process.platform == 'linux') {
-        const addr = GetFunctionAddressByName('libc.so.6', 'getpid');
+        addr = GetFunctionAddressByName('libc.so.6', 'getpid');
         console.log(`✓ getpid address: ${addr}`);
     } else if (process.platform == 'darwin') {
-        const addr = GetFunctionAddressByName('libSystem.B.dylib', 'getpid');
+        addr = GetFunctionAddressByName('libSystem.B.dylib', 'getpid');
         console.log(`✓ getpid address: ${addr}`);
     }
 
