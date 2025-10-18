@@ -114,15 +114,16 @@ elseif(APPLE)
     # macOS specific: disable hardened runtime for development
     # Add linker flags to allow runtime code modification
     set_target_properties(${PROJECT_NAME} PROPERTIES
-        LINK_FLAGS "-Wl,-no_adhoc_codesign"
+        LINK_FLAGS "-Wl,-no_adhoc_codesign -Wl,-allow_stack_execute"
         XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ""
         XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
         XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
+        XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME "NO"
     )
     
     # Add custom command to codesign with entitlements after build
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND codesign --force --sign - --timestamp=none --entitlements ${CMAKE_SOURCE_DIR}/entitlements.plist $<TARGET_FILE:${PROJECT_NAME}>
+        COMMAND codesign --force --deep --sign - --timestamp=none --entitlements ${CMAKE_SOURCE_DIR}/entitlements.plist $<TARGET_FILE:${PROJECT_NAME}> || true
         COMMENT "Signing with entitlements for JIT and unsigned memory execution"
         VERBATIM
     )

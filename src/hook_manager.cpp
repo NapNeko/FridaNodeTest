@@ -21,6 +21,7 @@
 #include <mach-o/dyld.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <pthread.h>
 #endif
 #endif
 
@@ -192,6 +193,14 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
 
     // Try to make the memory writable first on macOS
 #ifdef __APPLE__
+    // Try using pthread_jit_write_protect_np if available (macOS 11+)
+    // This allows JIT code modification
+    #if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
+        // Disable write protection for JIT
+        pthread_jit_write_protect_np(0);
+        std::cout << "[frida] JIT write protection disabled" << std::endl;
+    #endif
+    
     // Get page size and align the address
     size_t page_size = sysconf(_SC_PAGESIZE);
     void *page_start = (void *)((uintptr_t)g_hook_target & ~(page_size - 1));
@@ -229,6 +238,8 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
     // Use replace mode on all platforms
     gum_interceptor_begin_transaction(g_interceptor);
     
+    std::cout << "[frida] Starting replace operation..." << std::endl;
+    
     GumReplaceReturn ret = gum_interceptor_replace(
         g_interceptor,
         g_hook_target,
@@ -236,10 +247,14 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
         NULL,
         &g_original_trampoline);
     
+    std::cout << "[frida] Replace operation returned code: " << ret << std::endl;
+    
     gum_interceptor_end_transaction(g_interceptor);
 
     // Restore thread attention
     gum_interceptor_unignore_current_thread(g_interceptor);
+    
+    std::cout << "[frida] Transaction completed" << std::endl;
 
     if (ret != GUM_REPLACE_OK)
     {
