@@ -9,7 +9,7 @@ const {
     CallOriginalFunction,
     HookTest,
     CallTestFunction
-} = require('./test.js');
+} = require('./index.js');
 
 console.log('='.repeat(60));
 console.log('Frida Hook - Complete API Demo');
