@@ -7,7 +7,6 @@
 #include <sstream>
 #include <iostream>
 #include <cstring>
-#include <cerrno>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -19,11 +18,6 @@
 #endif
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
-#include <sys/mman.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <mach/mach.h>
-#include <mach/vm_map.h>
 #endif
 #endif
 
@@ -64,7 +58,7 @@ extern "C"
     {
         return 99;
     }
-    
+
     // Call the test function - will be hooked
     NOINLINE int CallTestFunction()
     {
@@ -200,60 +194,16 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
     if (g_interceptor == nullptr)
         g_interceptor = gum_interceptor_obtain();
 
-    // Try to make the memory writable first on macOS
+    // On macOS, mark memory as code to allow modification
 #ifdef __APPLE__
-    // Try using pthread_jit_write_protect_np if available (macOS 11+)
-    // This allows JIT code modification
-    #if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
-        // Disable write protection for JIT
-        pthread_jit_write_protect_np(0);
-        std::cout << "[frida] JIT write protection disabled" << std::endl;
-    #endif
-    
-    // Get page size and align the address
-    size_t page_size = sysconf(_SC_PAGESIZE);
-    void *page_start = (void *)((uintptr_t)g_hook_target & ~(page_size - 1));
-    
-    std::cout << "[frida] Page size: " << page_size << ", Page start: " << page_start << std::endl;
-    
-    // Try vm_protect first (macOS-specific, might have better luck)
-    kern_return_t kr = vm_protect(mach_task_self(), 
-                                   (vm_address_t)page_start, 
-                                   page_size, 
-                                   FALSE, 
-                                   VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE);
-    
-    if (kr == KERN_SUCCESS)
+    gsize page_size = gum_query_page_size();
+    gpointer page_start = GSIZE_TO_POINTER(
+        GPOINTER_TO_SIZE(g_hook_target) & ~(page_size - 1));
+
+    std::cout << "[frida] Marking memory as code..." << std::endl;
+    if (!gum_memory_mark_code(page_start, page_size))
     {
-        std::cout << "[frida] vm_protect succeeded" << std::endl;
-    }
-    else
-    {
-        std::cout << "[frida] vm_protect failed with code=" << kr << ", trying mprotect..." << std::endl;
-        
-        // Fallback to mprotect
-        if (mprotect(page_start, page_size, PROT_READ | PROT_WRITE | PROT_EXEC) != 0)
-        {
-            std::cout << "[frida] mprotect failed with errno=" << errno << ", trying Frida's method..." << std::endl;
-            
-            // Last resort: Frida's method
-            gsize gum_page_size = gum_query_page_size();
-            gpointer gum_page_start = GSIZE_TO_POINTER(
-                GPOINTER_TO_SIZE(g_hook_target) & ~(gum_page_size - 1));
-            
-            if (!gum_memory_mark_code(gum_page_start, gum_page_size))
-            {
-                std::cout << "[frida] Warning: gum_memory_mark_code also failed" << std::endl;
-            }
-            else
-            {
-                std::cout << "[frida] gum_memory_mark_code succeeded" << std::endl;
-            }
-        }
-        else
-        {
-            std::cout << "[frida] mprotect succeeded" << std::endl;
-        }
+        std::cout << "[frida] Warning: gum_memory_mark_code failed" << std::endl;
     }
 #endif
 
@@ -262,24 +212,18 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
 
     // Use replace mode on all platforms
     gum_interceptor_begin_transaction(g_interceptor);
-    
-    std::cout << "[frida] Starting replace operation..." << std::endl;
-    
+
     GumReplaceReturn ret = gum_interceptor_replace(
         g_interceptor,
         g_hook_target,
         replacement,
         NULL,
         &g_original_trampoline);
-    
-    std::cout << "[frida] Replace operation returned code: " << ret << std::endl;
-    
+
     gum_interceptor_end_transaction(g_interceptor);
 
     // Restore thread attention
     gum_interceptor_unignore_current_thread(g_interceptor);
-    
-    std::cout << "[frida] Transaction completed" << std::endl;
 
     if (ret != GUM_REPLACE_OK)
     {
@@ -289,5 +233,17 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
         return Napi::Boolean::New(env, false);
     }
     std::cout << "[frida] replace succeeded" << std::endl;
+    g_hook_installed = true;
     return Napi::Boolean::New(env, true);
+}
+
+// callTestFunction(): call the hooked function and return its result
+Napi::Value Js_callTestFunction(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    int result = CallTestFunction();
+    std::cout << "[test] CallTestFunction returned: " << result << std::endl;
+
+    return Napi::Number::New(env, result);
 }
