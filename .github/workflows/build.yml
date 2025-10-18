@@ -11,13 +11,32 @@ on:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }} with Node ${{ matrix.node-version }}
-    runs-on: ${{ matrix.os }}
+    name: Build on ${{ matrix.os }}-${{ matrix.arch }} with Node ${{ matrix.node-version }}
+    runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [20.x]
+        include:
+          # Linux AMD64
+          - os: ubuntu-latest
+            runs-on: ubuntu-latest
+            arch: x64
+            node-version: 20.x
+          # Linux ARM64
+          - os: ubuntu-latest
+            runs-on: ubuntu-24.04-arm
+            arch: arm64
+            node-version: 20.x
+          # macOS ARM64
+          - os: macos-latest
+            runs-on: macos-latest
+            arch: arm64
+            node-version: 20.x
+          # Windows AMD64
+          - os: windows-latest
+            runs-on: windows-latest
+            arch: x64
+            node-version: 20.x
 
     steps:
     - name: Checkout code
@@ -27,6 +46,7 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
+        architecture: ${{ matrix.arch }}
 
     - name: Install build tools (Ubuntu)
       if: runner.os == 'Linux'
@@ -64,7 +84,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: success()
       with:
-        name: frida-hook-${{ matrix.os }}-node${{ matrix.node-version }}
+        name: frida-hook-${{ matrix.os }}-${{ matrix.arch }}-node${{ matrix.node-version }}
         path: build/Release/*.node
         retention-days: 7
 
@@ -72,7 +92,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: test-results-${{ matrix.os }}-node${{ matrix.node-version }}
+        name: test-results-${{ matrix.os }}-${{ matrix.arch }}-node${{ matrix.node-version }}
         path: |
           *.log
           npm-debug.log*
