@@ -203,16 +203,24 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
     std::cout << "[frida] Marking memory as code..." << std::endl;
     if (!gum_memory_mark_code(page_start, page_size))
     {
-        std::cout << "[frida] Warning: gum_memory_mark_code failed" << std::endl;
+        std::cout << "[frida] Warning: gum_memory_mark_code failed, continuing anyway..." << std::endl;
+    }
+    else
+    {
+        std::cout << "[frida] Memory marked as code successfully" << std::endl;
     }
 #endif
 
     // Ignore current thread to avoid potential issues
     gum_interceptor_ignore_current_thread(g_interceptor);
 
+    std::cout << "[frida] Beginning transaction..." << std::endl;
+    
     // Use replace mode on all platforms
     gum_interceptor_begin_transaction(g_interceptor);
 
+    std::cout << "[frida] Calling gum_interceptor_replace..." << std::endl;
+    
     GumReplaceReturn ret = gum_interceptor_replace(
         g_interceptor,
         g_hook_target,
@@ -220,10 +228,16 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
         NULL,
         &g_original_trampoline);
 
+    std::cout << "[frida] Replace returned: " << ret << std::endl;
+    
     gum_interceptor_end_transaction(g_interceptor);
 
+    std::cout << "[frida] Transaction ended" << std::endl;
+    
     // Restore thread attention
     gum_interceptor_unignore_current_thread(g_interceptor);
+
+    std::cout << "[frida] Thread unignored" << std::endl;
 
     if (ret != GUM_REPLACE_OK)
     {
@@ -241,7 +255,21 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
 Napi::Value Js_callTestFunction(const Napi::CallbackInfo &info)
 {
     Napi::Env env = info.Env();
+    
+    if (!g_hook_installed)
+    {
+        Napi::Error::New(env, "Hook not installed yet").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
 
+    std::cout << "[test] About to call hooked function..." << std::endl;
+    
+    // Make sure we're not ignoring the current thread when calling
+    if (g_interceptor != nullptr)
+    {
+        gum_interceptor_unignore_current_thread(g_interceptor);
+    }
+    
     int result = CallTestFunction();
     std::cout << "[test] CallTestFunction returned: " << result << std::endl;
 
