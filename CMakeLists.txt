@@ -114,7 +114,7 @@ elseif(APPLE)
     # macOS specific: disable hardened runtime for development
     # Add linker flags to allow runtime code modification
     set_target_properties(${PROJECT_NAME} PROPERTIES
-        LINK_FLAGS "-Wl,-no_adhoc_codesign -Wl,-allow_stack_execute"
+        LINK_FLAGS "-Wl,-no_adhoc_codesign"
         XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ""
         XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
         XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"

@@ -22,6 +22,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <mach/mach.h>
+#include <mach/vm_map.h>
 #endif
 #endif
 
@@ -32,6 +34,7 @@ static bool g_frida_initialized = false;
 static GumInterceptor *g_interceptor = nullptr;
 static void *g_hook_target = nullptr;
 static void *g_original_trampoline = nullptr; // original gateway returned by replace
+static bool g_hook_installed = false;
 
 #ifdef _MSC_VER
 #define NOINLINE __declspec(noinline)
@@ -60,6 +63,12 @@ extern "C"
     NOINLINE int TestReplacementFunctionImpl()
     {
         return 99;
+    }
+    
+    // Call the test function - will be hooked
+    NOINLINE int CallTestFunction()
+    {
+        return TestOriginalFunction();
     }
 }
 
@@ -207,28 +216,44 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
     
     std::cout << "[frida] Page size: " << page_size << ", Page start: " << page_start << std::endl;
     
-    // Try to set memory protection to RWX
-    if (mprotect(page_start, page_size, PROT_READ | PROT_WRITE | PROT_EXEC) != 0)
+    // Try vm_protect first (macOS-specific, might have better luck)
+    kern_return_t kr = vm_protect(mach_task_self(), 
+                                   (vm_address_t)page_start, 
+                                   page_size, 
+                                   FALSE, 
+                                   VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE);
+    
+    if (kr == KERN_SUCCESS)
     {
-        std::cout << "[frida] Warning: mprotect failed with errno=" << errno << ", trying Frida's method..." << std::endl;
-        
-        // Fallback to Frida's method
-        gsize gum_page_size = gum_query_page_size();
-        gpointer gum_page_start = GSIZE_TO_POINTER(
-            GPOINTER_TO_SIZE(g_hook_target) & ~(gum_page_size - 1));
-        
-        if (!gum_memory_mark_code(gum_page_start, gum_page_size))
-        {
-            std::cout << "[frida] Warning: gum_memory_mark_code also failed, trying anyway..." << std::endl;
-        }
-        else
-        {
-            std::cout << "[frida] gum_memory_mark_code succeeded" << std::endl;
-        }
+        std::cout << "[frida] vm_protect succeeded" << std::endl;
     }
     else
     {
-        std::cout << "[frida] mprotect succeeded" << std::endl;
+        std::cout << "[frida] vm_protect failed with code=" << kr << ", trying mprotect..." << std::endl;
+        
+        // Fallback to mprotect
+        if (mprotect(page_start, page_size, PROT_READ | PROT_WRITE | PROT_EXEC) != 0)
+        {
+            std::cout << "[frida] mprotect failed with errno=" << errno << ", trying Frida's method..." << std::endl;
+            
+            // Last resort: Frida's method
+            gsize gum_page_size = gum_query_page_size();
+            gpointer gum_page_start = GSIZE_TO_POINTER(
+                GPOINTER_TO_SIZE(g_hook_target) & ~(gum_page_size - 1));
+            
+            if (!gum_memory_mark_code(gum_page_start, gum_page_size))
+            {
+                std::cout << "[frida] Warning: gum_memory_mark_code also failed" << std::endl;
+            }
+            else
+            {
+                std::cout << "[frida] gum_memory_mark_code succeeded" << std::endl;
+            }
+        }
+        else
+        {
+            std::cout << "[frida] mprotect succeeded" << std::endl;
+        }
     }
 #endif
 
