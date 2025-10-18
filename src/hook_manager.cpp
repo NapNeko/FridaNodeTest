@@ -27,6 +27,7 @@
 static bool g_frida_initialized = false;
 static GumInterceptor* g_interceptor = nullptr;
 static void* g_hook_target = nullptr;
+static void* g_original_trampoline = nullptr; // original gateway returned by replace
 #ifndef _WIN32
 static GumInvocationListener* g_listener = nullptr; // for attach mode
 
@@ -133,12 +134,21 @@ Napi::Value Js_Init(const Napi::CallbackInfo& info) {
 // getFunctionRva(moduleName: string, rva: number) => BigInt absolute address
 Napi::Value Js_getFunctionRva(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    if (info.Length() < 2 || !info[0].IsString() || !info[1].IsNumber()) {
-        Napi::TypeError::New(env, "Expected (moduleName: string, rva: number)").ThrowAsJavaScriptException();
+    if (info.Length() < 2 || !info[0].IsString() || (!info[1].IsNumber() && !info[1].IsBigInt())) {
+        Napi::TypeError::New(env, "Expected (moduleName: string, rva: number|bigint)").ThrowAsJavaScriptException();
         return env.Null();
     }
     std::string moduleName = info[0].As<Napi::String>().Utf8Value();
-    uint64_t rva = static_cast<uint64_t>(info[1].As<Napi::Number>().Int64Value());
+    uint64_t rva = 0;
+    if (info[1].IsBigInt()) {
+        bool lossless = false;
+        rva = info[1].As<Napi::BigInt>().Uint64Value(&lossless);
+        if (!lossless) {
+            // Still accept but note potential precision loss
+        }
+    } else {
+        rva = static_cast<uint64_t>(info[1].As<Napi::Number>().Int64Value());
+    }
 
     void* basePtr = GetModuleBaseAddress(moduleName);
     if (!basePtr) {
@@ -163,25 +173,30 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo& info) {
 
     if (g_interceptor == nullptr) g_interceptor = gum_interceptor_obtain();
 
-#ifdef _WIN32
+    // Try replace on all platforms first; on non-Windows, fallback to attach if replace is prohibited
     gum_interceptor_begin_transaction(g_interceptor);
     GumReplaceReturn ret = gum_interceptor_replace(
         g_interceptor,
         g_hook_target,
         replacement,
         NULL,
-        NULL);
+        &g_original_trampoline);
     gum_interceptor_end_transaction(g_interceptor);
+
+#ifdef _WIN32
     if (ret != GUM_REPLACE_OK) {
-        std::stringstream ss; ss << "hookTest failed, code=" << ret;
+        std::stringstream ss; ss << "hookTest replace failed, code=" << ret;
         Napi::Error::New(env, ss.str()).ThrowAsJavaScriptException();
         return Napi::Boolean::New(env, false);
     }
     return Napi::Boolean::New(env, true);
 #else
-#  if defined(__APPLE__)
-    // macOS: attempt attach (may require proper environment; can crash in restricted CI)
-    std::cout << "[frida] macOS: attaching listener to TestOriginalFunction..." << std::endl;
+    if (ret == GUM_REPLACE_OK) {
+        return Napi::Boolean::New(env, true);
+    }
+
+    // Fallback to attach listener (will force return value to 99 on leave)
+    std::cout << "[frida] replace failed (code=" << ret << "), falling back to attach..." << std::endl;
     if (g_listener == nullptr)
         g_listener = GUM_INVOCATION_LISTENER(g_object_new(test_listener_get_type(), NULL));
 
@@ -193,35 +208,11 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo& info) {
         NULL);
     gum_interceptor_end_transaction(g_interceptor);
     if (aret != GUM_ATTACH_OK) {
-        std::stringstream ss; ss << "hookTest attach failed (macOS), code=" << aret;
+        std::stringstream ss; ss << "hookTest attach fallback failed, code=" << aret;
         Napi::Error::New(env, ss.str()).ThrowAsJavaScriptException();
         return Napi::Boolean::New(env, false);
     }
-    std::cout << "[frida] macOS: attach succeeded" << std::endl;
+    std::cout << "[frida] attach fallback succeeded" << std::endl;
     return Napi::Boolean::New(env, true);
-#  else
-    // Linux: attach-only
-    std::cout << "[frida] attaching listener to TestOriginalFunction..." << std::endl;
-    if (g_listener == nullptr)
-        g_listener = GUM_INVOCATION_LISTENER(g_object_new(test_listener_get_type(), NULL));
-
-    gum_interceptor_begin_transaction(g_interceptor);
-    GumAttachReturn aret = gum_interceptor_attach(
-        g_interceptor,
-        g_hook_target,
-        g_listener,
-        NULL);
-    gum_interceptor_end_transaction(g_interceptor);
-    if (aret != GUM_ATTACH_OK) {
-        std::stringstream ss; ss << "hookTest attach failed, code=" << aret;
-        Napi::Error::New(env, ss.str()).ThrowAsJavaScriptException();
-        return Napi::Boolean::New(env, false);
-    }
-    std::cout << "[frida] attach succeeded" << std::endl;
-    return Napi::Boolean::New(env, true);
-#  endif
 #endif
 }
-
-// Optional: expose a quick call to verify (not requested, so omitted)
-
