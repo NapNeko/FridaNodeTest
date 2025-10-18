@@ -179,8 +179,28 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo& info) {
     }
     return Napi::Boolean::New(env, true);
 #else
-    // Non-Windows: use attach-only for stability on macOS/Linux.
-    // This avoids rare crashes observed with replace on some macOS targets.
+#  if defined(__APPLE__)
+    // macOS: attempt attach (may require proper environment; can crash in restricted CI)
+    std::cout << "[frida] macOS: attaching listener to TestOriginalFunction..." << std::endl;
+    if (g_listener == nullptr)
+        g_listener = GUM_INVOCATION_LISTENER(g_object_new(test_listener_get_type(), NULL));
+
+    gum_interceptor_begin_transaction(g_interceptor);
+    GumAttachReturn aret = gum_interceptor_attach(
+        g_interceptor,
+        g_hook_target,
+        g_listener,
+        NULL);
+    gum_interceptor_end_transaction(g_interceptor);
+    if (aret != GUM_ATTACH_OK) {
+        std::stringstream ss; ss << "hookTest attach failed (macOS), code=" << aret;
+        Napi::Error::New(env, ss.str()).ThrowAsJavaScriptException();
+        return Napi::Boolean::New(env, false);
+    }
+    std::cout << "[frida] macOS: attach succeeded" << std::endl;
+    return Napi::Boolean::New(env, true);
+#  else
+    // Linux: attach-only
     std::cout << "[frida] attaching listener to TestOriginalFunction..." << std::endl;
     if (g_listener == nullptr)
         g_listener = GUM_INVOCATION_LISTENER(g_object_new(test_listener_get_type(), NULL));
@@ -199,6 +219,7 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo& info) {
     }
     std::cout << "[frida] attach succeeded" << std::endl;
     return Napi::Boolean::New(env, true);
+#  endif
 #endif
 }
 
