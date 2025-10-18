@@ -7,6 +7,7 @@
 #include <sstream>
 #include <iostream>
 #include <cstring>
+#include <cerrno>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -18,6 +19,8 @@
 #endif
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #endif
 #endif
 
@@ -189,15 +192,34 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
 
     // Try to make the memory writable first on macOS
 #ifdef __APPLE__
-    // Attempt to mark the page as executable/writable
-    gsize page_size = gum_query_page_size();
-    gpointer page_start = GSIZE_TO_POINTER(
-        GPOINTER_TO_SIZE(g_hook_target) & ~(page_size - 1));
+    // Get page size and align the address
+    size_t page_size = sysconf(_SC_PAGESIZE);
+    void *page_start = (void *)((uintptr_t)g_hook_target & ~(page_size - 1));
     
-    std::cout << "[frida] Attempting to mark memory as code..." << std::endl;
-    if (!gum_memory_mark_code(page_start, page_size))
+    std::cout << "[frida] Page size: " << page_size << ", Page start: " << page_start << std::endl;
+    
+    // Try to set memory protection to RWX
+    if (mprotect(page_start, page_size, PROT_READ | PROT_WRITE | PROT_EXEC) != 0)
     {
-        std::cout << "[frida] Warning: Could not mark memory as code, trying anyway..." << std::endl;
+        std::cout << "[frida] Warning: mprotect failed with errno=" << errno << ", trying Frida's method..." << std::endl;
+        
+        // Fallback to Frida's method
+        gsize gum_page_size = gum_query_page_size();
+        gpointer gum_page_start = GSIZE_TO_POINTER(
+            GPOINTER_TO_SIZE(g_hook_target) & ~(gum_page_size - 1));
+        
+        if (!gum_memory_mark_code(gum_page_start, gum_page_size))
+        {
+            std::cout << "[frida] Warning: gum_memory_mark_code also failed, trying anyway..." << std::endl;
+        }
+        else
+        {
+            std::cout << "[frida] gum_memory_mark_code succeeded" << std::endl;
+        }
+    }
+    else
+    {
+        std::cout << "[frida] mprotect succeeded" << std::endl;
     }
 #endif
 
