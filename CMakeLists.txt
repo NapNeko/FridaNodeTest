@@ -115,7 +115,18 @@ elseif(APPLE)
     # Add linker flags to allow runtime code modification
     set_target_properties(${PROJECT_NAME} PROPERTIES
         LINK_FLAGS "-Wl,-no_adhoc_codesign"
+        XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ""
+        XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
+        XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
     )
+    
+    # Add custom command to codesign with entitlements after build
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND codesign --force --sign - --timestamp=none --entitlements ${CMAKE_SOURCE_DIR}/entitlements.plist $<TARGET_FILE:${PROJECT_NAME}>
+        COMMENT "Signing with entitlements for JIT and unsigned memory execution"
+        VERBATIM
+    )
+    
     target_compile_definitions(${PROJECT_NAME} PRIVATE
         GUM_STATIC
         GLIB_STATIC_COMPILATION

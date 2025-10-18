@@ -41,8 +41,7 @@ extern "C"
     // Make sure it has a proper function body that won't be optimized away
     NOINLINE int TestOriginalFunction()
     {
-#if defined(__APPLE__)
-        // Ensure non-trivial prologue on some clang targets
+        // Ensure non-trivial prologue on all platforms
         volatile int sum = 0;
         for (volatile int i = 0; i < 8; i++)
             sum += i;
@@ -51,9 +50,6 @@ extern "C"
         if (sum == 28)
             result += sum;
         return result;
-#else
-        return 42;
-#endif
     }
 
     // Replacement returns 99
@@ -181,18 +177,47 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
 
     std::cout << "[frida] Attempting to hook function at: " << g_hook_target << std::endl;
 
+    // Check if memory is accessible
+    if (!gum_memory_is_readable(g_hook_target, 16))
+    {
+        Napi::Error::New(env, "Target memory is not readable").ThrowAsJavaScriptException();
+        return Napi::Boolean::New(env, false);
+    }
+
     if (g_interceptor == nullptr)
         g_interceptor = gum_interceptor_obtain();
 
+    // Try to make the memory writable first on macOS
+#ifdef __APPLE__
+    // Attempt to mark the page as writable
+    gsize page_size = gum_query_page_size();
+    gpointer page_start = GSIZE_TO_POINTER(
+        GPOINTER_TO_SIZE(g_hook_target) & ~(page_size - 1));
+    
+    std::cout << "[frida] Attempting to mark memory as writable..." << std::endl;
+    if (!gum_memory_mark_code_as_rwx(page_start, page_size))
+    {
+        std::cout << "[frida] Warning: Could not mark memory as RWX, trying anyway..." << std::endl;
+    }
+#endif
+
+    // Ignore current thread to avoid potential issues
+    gum_interceptor_ignore_current_thread(g_interceptor);
+
     // Use replace mode on all platforms
     gum_interceptor_begin_transaction(g_interceptor);
+    
     GumReplaceReturn ret = gum_interceptor_replace(
         g_interceptor,
         g_hook_target,
         replacement,
         NULL,
         &g_original_trampoline);
+    
     gum_interceptor_end_transaction(g_interceptor);
+
+    // Restore thread attention
+    gum_interceptor_unignore_current_thread(g_interceptor);
 
     if (ret != GUM_REPLACE_OK)
     {
