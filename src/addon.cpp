@@ -1,18 +1,32 @@
 #include <napi.h>
 
 // Declarations from hook_manager.cpp
-Napi::Value Js_Init(const Napi::CallbackInfo& info);
-Napi::Value Js_getFunctionRva(const Napi::CallbackInfo& info);
-Napi::Value Js_hookTest(const Napi::CallbackInfo& info);
-Napi::Value Js_callTestFunction(const Napi::CallbackInfo& info);
+Napi::Value Init(const Napi::CallbackInfo& info);
+Napi::Value GetFunctionAddressByRva(const Napi::CallbackInfo& info);
+Napi::Value GetFunctionAddressByName(const Napi::CallbackInfo& info);
+Napi::Value Hook(const Napi::CallbackInfo& info);
+Napi::Value Unhook(const Napi::CallbackInfo& info);
+Napi::Value CallFunctionNoArg(const Napi::CallbackInfo& info);
 
-// 初始化模块：导出四个函数
+// Test functions
+Napi::Value HookTest(const Napi::CallbackInfo& info);
+Napi::Value CallTestFunction(const Napi::CallbackInfo& info);
+
+// 初始化模块:导出所有函数
 Napi::Object InitModule(Napi::Env env, Napi::Object exports) {
-    exports.Set("Init", Napi::Function::New(env, Js_Init, "Init"));
-    exports.Set("getFunctionRva", Napi::Function::New(env, Js_getFunctionRva, "getFunctionRva"));
-    exports.Set("hookTest", Napi::Function::New(env, Js_hookTest, "hookTest"));
-    exports.Set("callTestFunction", Napi::Function::New(env, Js_callTestFunction, "callTestFunction"));
+    // 核心 API
+    exports.Set("Init", Napi::Function::New(env, Init, "Init"));
+    exports.Set("GetFunctionAddressByRva", Napi::Function::New(env, GetFunctionAddressByRva, "GetFunctionAddressByRva"));
+    exports.Set("GetFunctionAddressByName", Napi::Function::New(env, GetFunctionAddressByName, "GetFunctionAddressByName"));
+    exports.Set("Hook", Napi::Function::New(env, Hook, "Hook"));
+    exports.Set("Unhook", Napi::Function::New(env, Unhook, "Unhook"));
+    exports.Set("CallFunctionNoArg", Napi::Function::New(env, CallFunctionNoArg, "CallFunctionNoArg"));
+    
+    // 测试函数
+    exports.Set("HookTest", Napi::Function::New(env, HookTest, "HookTest"));
+    exports.Set("CallTestFunction", Napi::Function::New(env, CallTestFunction, "CallTestFunction"));
+    
     return exports;
 }
 
-NODE_API_MODULE(dobby_hook_addon, InitModule)
+NODE_API_MODULE(frida_hook_addon, InitModule)
