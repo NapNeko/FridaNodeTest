@@ -63,16 +63,55 @@ jobs:
       if: runner.os == 'Windows'
       uses: ilammy/msvc-dev-cmd@v1
 
+    - name: Display system info
+      run: |
+        echo "Architecture: ${{ matrix.arch }}"
+        echo "Runner OS: ${{ runner.os }}"
+        if [ "${{ runner.os }}" = "Linux" ] || [ "${{ runner.os }}" = "macOS" ]; then
+          uname -m
+          echo "CMAKE_SYSTEM_PROCESSOR will be: $(uname -m)"
+        fi
+      shell: bash
+
     - name: Cache Frida DevKit
       uses: actions/cache@v4
       with:
         path: .frida-devkit
-        key: frida-devkit-16.5.9-${{ runner.os }}-${{ runner.arch }}
+        key: frida-devkit-16.5.9-${{ runner.os }}-${{ matrix.arch }}
         restore-keys: |
-          frida-devkit-16.5.9-${{ runner.os }}-
+          frida-devkit-16.5.9-${{ runner.os }}-${{ matrix.arch }}
 
     - name: Install npm dependencies
       run: npm ci
+
+    - name: Clean old Frida DevKit if architecture mismatch
+      run: |
+        if [ -d ".frida-devkit" ]; then
+          echo "Checking existing Frida DevKit..."
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            # Check if existing devkit is x86_64 (EM: 62)
+            if [ -f ".frida-devkit/libfrida-gum.a" ]; then
+              FILE_INFO=$(file .frida-devkit/libfrida-gum.a || true)
+              echo "DevKit file info: $FILE_INFO"
+              if echo "$FILE_INFO" | grep -q "x86-64\|x86_64"; then
+                echo "Found x86_64 DevKit on ARM64 runner, removing..."
+                rm -rf .frida-devkit .frida-devkit.tar.xz
+              fi
+            fi
+          elif [ "${{ matrix.arch }}" = "x64" ]; then
+            # Check if existing devkit is ARM64 (EM: 183)
+            if [ -f ".frida-devkit/libfrida-gum.a" ]; then
+              FILE_INFO=$(file .frida-devkit/libfrida-gum.a || true)
+              echo "DevKit file info: $FILE_INFO"
+              if echo "$FILE_INFO" | grep -q "aarch64\|ARM"; then
+                echo "Found ARM64 DevKit on x64 runner, removing..."
+                rm -rf .frida-devkit .frida-devkit.tar.xz
+              fi
+            fi
+          fi
+        fi
+      shell: bash
+      if: runner.os != 'Windows'
 
     - name: Build native addon
       run: npm run build
