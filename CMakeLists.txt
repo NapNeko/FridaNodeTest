@@ -120,14 +120,7 @@ elseif(APPLE)
         XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
         XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME "NO"
     )
-    
-    # Add custom command to codesign with entitlements after build
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND codesign --force --deep --sign - --timestamp=none --entitlements ${CMAKE_SOURCE_DIR}/entitlements.plist $<TARGET_FILE:${PROJECT_NAME}> || true
-        COMMENT "Signing with entitlements for JIT and unsigned memory execution"
-        VERBATIM
-    )
-    
+
     target_compile_definitions(${PROJECT_NAME} PRIVATE
         GUM_STATIC
         GLIB_STATIC_COMPILATION
