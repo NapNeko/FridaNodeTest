@@ -67,14 +67,19 @@ static void test_listener_init(TestListener*) {}
 
 extern "C" {
     // A tiny function we can hook for demo/testing
+    // Make sure it has a proper function body that won't be optimized away
     NOINLINE int TestOriginalFunction() {
 #if defined(__APPLE__)
         // Ensure non-trivial prologue on some clang targets
         volatile int sum = 0;
         for (volatile int i = 0; i < 8; i++) sum += i;
-        if (sum == -1) asm volatile("");
-#endif
+        // Add more instructions to ensure proper function size
+        volatile int result = 42;
+        if (sum == 28) result += sum;
+        return result;
+#else
         return 42;
+#endif
     }
 
     // Replacement returns 99
@@ -171,9 +176,18 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo& info) {
     g_hook_target = reinterpret_cast<void*>(&TestOriginalFunction);
     void* replacement = reinterpret_cast<void*>(&TestReplacementFunctionImpl);
 
+    // Validate target address before hooking
+    if (g_hook_target == nullptr) {
+        Napi::Error::New(env, "Hook target is null").ThrowAsJavaScriptException();
+        return Napi::Boolean::New(env, false);
+    }
+
+    std::cout << "[frida] Attempting to hook function at: " << g_hook_target << std::endl;
+
     if (g_interceptor == nullptr) g_interceptor = gum_interceptor_obtain();
 
-    // Try replace on all platforms first; on non-Windows, fallback to attach if replace is prohibited
+#ifdef _WIN32
+    // On Windows, use replace directly
     gum_interceptor_begin_transaction(g_interceptor);
     GumReplaceReturn ret = gum_interceptor_replace(
         g_interceptor,
@@ -183,7 +197,6 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo& info) {
         &g_original_trampoline);
     gum_interceptor_end_transaction(g_interceptor);
 
-#ifdef _WIN32
     if (ret != GUM_REPLACE_OK) {
         std::stringstream ss; ss << "hookTest replace failed, code=" << ret;
         Napi::Error::New(env, ss.str()).ThrowAsJavaScriptException();
@@ -191,12 +204,7 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo& info) {
     }
     return Napi::Boolean::New(env, true);
 #else
-    if (ret == GUM_REPLACE_OK) {
-        return Napi::Boolean::New(env, true);
-    }
-
-    // Fallback to attach listener (will force return value to 99 on leave)
-    std::cout << "[frida] replace failed (code=" << ret << "), falling back to attach..." << std::endl;
+    // On non-Windows, prefer attach due to code signing restrictions
     if (g_listener == nullptr)
         g_listener = GUM_INVOCATION_LISTENER(g_object_new(test_listener_get_type(), NULL));
 
@@ -205,14 +213,16 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo& info) {
         g_interceptor,
         g_hook_target,
         g_listener,
-        NULL);
+        NULL,
+        GUM_ATTACH_FLAGS_NONE);
     gum_interceptor_end_transaction(g_interceptor);
+    
     if (aret != GUM_ATTACH_OK) {
-        std::stringstream ss; ss << "hookTest attach fallback failed, code=" << aret;
+        std::stringstream ss; ss << "hookTest attach failed, code=" << aret;
         Napi::Error::New(env, ss.str()).ThrowAsJavaScriptException();
         return Napi::Boolean::New(env, false);
     }
-    std::cout << "[frida] attach fallback succeeded" << std::endl;
+    std::cout << "[frida] attach succeeded" << std::endl;
     return Napi::Boolean::New(env, true);
 #endif
 }

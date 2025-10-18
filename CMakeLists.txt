@@ -111,6 +111,17 @@ elseif(APPLE)
         "-framework AppKit"
         resolv
     )
+    # macOS specific: disable hardened runtime for development
+    # Add linker flags to allow runtime code modification
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        LINK_FLAGS "-Wl,-no_adhoc_codesign"
+    )
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+        GUM_STATIC
+        GLIB_STATIC_COMPILATION
+        GOBJECT_STATIC_COMPILATION
+        GIO_STATIC_COMPILATION
+    )
 else()
     target_link_libraries(${PROJECT_NAME} 
         ${CMAKE_JS_LIB}
@@ -119,6 +130,12 @@ else()
         dl
         rt
         resolv
+    )
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+        GUM_STATIC
+        GLIB_STATIC_COMPILATION
+        GOBJECT_STATIC_COMPILATION
+        GIO_STATIC_COMPILATION
     )
 endif()
 
