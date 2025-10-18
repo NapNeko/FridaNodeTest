@@ -35,19 +35,8 @@ typedef struct { GObjectClass parent_class; } TestListenerClass;
 
 static void test_listener_on_enter(GumInvocationListener*, GumInvocationContext*) {}
 static void test_listener_on_leave(GumInvocationListener*, GumInvocationContext* context) {
+    // Replace return value; Frida will ensure it's reflected to the caller
     gum_invocation_context_replace_return_value(context, GUINT_TO_POINTER(99));
-    GumCpuContext* cpu = gum_invocation_context_get_cpu_context(context);
-    if (cpu != NULL) {
-#  if defined(__aarch64__) || defined(__arm64__)
-        cpu->x[0] = 99;
-#  elif defined(__x86_64__) || defined(_M_X64)
-        cpu->rax = 99;
-#  elif defined(__arm__)
-        cpu->r0 = 99;
-#  elif defined(__i386__) || defined(_M_IX86)
-        cpu->eax = 99;
-#  endif
-    }
 }
 
 static void test_listener_iface_init(gpointer g_iface, gpointer) {
