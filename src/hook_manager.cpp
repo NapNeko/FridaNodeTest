@@ -189,15 +189,15 @@ Napi::Value Js_hookTest(const Napi::CallbackInfo &info)
 
     // Try to make the memory writable first on macOS
 #ifdef __APPLE__
-    // Attempt to mark the page as writable
+    // Attempt to mark the page as executable/writable
     gsize page_size = gum_query_page_size();
     gpointer page_start = GSIZE_TO_POINTER(
         GPOINTER_TO_SIZE(g_hook_target) & ~(page_size - 1));
     
-    std::cout << "[frida] Attempting to mark memory as writable..." << std::endl;
-    if (!gum_memory_mark_code_as_rwx(page_start, page_size))
+    std::cout << "[frida] Attempting to mark memory as code..." << std::endl;
+    if (!gum_memory_mark_code(page_start, page_size))
     {
-        std::cout << "[frida] Warning: Could not mark memory as RWX, trying anyway..." << std::endl;
+        std::cout << "[frida] Warning: Could not mark memory as code, trying anyway..." << std::endl;
     }
 #endif
 
