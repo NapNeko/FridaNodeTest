@@ -17,7 +17,7 @@ string(REPLACE "\"" "" NODE_ADDON_API_DIR ${NODE_ADDON_API_DIR})
 include_directories(${CMAKE_JS_INC})
 
 # Download and use Frida Gum DevKit
-set(FRIDA_VERSION "16.5.9")
+set(FRIDA_VERSION "17.4.0")
 
 if(WIN32)
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
